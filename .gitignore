@@ -1,0 +1,12 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+
+# Configs d
+src/config/settings.py
+
+# VS Code
+.vscode/
+.DS_Store
+
+# Database
+bot_gpt.db
