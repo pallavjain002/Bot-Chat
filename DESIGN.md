@@ -14,13 +14,34 @@ This system focuses on clean backend architecture, API design, data modeling, an
 ### High-Level Architecture Diagram
 
 ```
-[Client] -> [FastAPI (API Layer)] -> [ConversationService (Service Layer)] -> [LLMService] -> [Groq API]
-                                      |                                      |
-                                      v                                      v
-                               [SQLAlchemy (DB Layer)]               [Redis (Caching)]
-                                      |
-                                      v
-                               [PostgreSQL]
+        [ Client / User Interface ]
+                    |
+                    | HTTP/REST JSON
+                    v
++===========================================+
+|           PRESENTATION LAYER              |
+|      [ FastAPI (API Gateways/Routes) ]    |
++===========================================+
+                    |
+                    v
++===========================================+
+|             SERVICE LAYER                 |
+|    [ ConversationService (Business Logic)]|<-------> [Redis (Hot State/Cache)]
++===========================================+
+            |                 |
+            |                 |
+            v                 v
++--------------------+  +-------------------+
+| DATA ACCESS LAYER  |  | INTEGRATION LAYER |
+| [ SQLAlchemy ORM ] |  |   [ LLMService ]  |
++--------------------+  +-------------------+
+            |                 |
+            |                 | HTTPS
+            v                 v
++====================+  +===================+
+|   INFRASTRUCTURE   |  | EXTERNAL PROVIDER |
+| [ PostgreSQL DB ]  |  |    [ Groq API ]   |
++====================+  +===================+
 ```
 
 - **API Layer**: FastAPI for validation, auth, routing, Swagger docs
@@ -53,8 +74,8 @@ In both modes: Conversation history persisted, messages ordered, token usage tra
 
 **Entities:**
 
-- **User**: id (PK), email, created_at
-- **Conversation**: id (PK), user_id (FK), mode (open/grounded), state (active/archived), created_at, updated_at
+- **User**: id (PK), username, email, created_at
+- **Conversation**: id (PK), user_id (FK), title, mode (open/grounded), state (active/archived), created_at, updated_at
 - **Message**: id (PK), conversation_id (FK), role (user/assistant/system), content, timestamp, tokens_used
 - **Document**: id (PK), conversation_id (FK), name, content_chunks (stored as chunked text)
 

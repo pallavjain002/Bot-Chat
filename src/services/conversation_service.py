@@ -1,5 +1,5 @@
 from sqlalchemy.orm import Session
-from src.models import Conversation, Message, Document, ChatMode
+from src.models import Conversation, Message, Document, ChatMode, ConversationState
 from src.services.llm_service import LLMService
 from typing import List, Dict, Optional
 import redis
@@ -11,8 +11,8 @@ class ConversationService:
         self.redis = redis_client
         self.llm_service = LLMService()
 
-    async def create_conversation(self, user_id: int, first_message: str, mode: ChatMode = ChatMode.open, document_ids: Optional[List[int]] = None) -> Conversation:
-        conversation = Conversation(user_id=user_id, mode=mode)
+    async def create_conversation(self, user_id: int, first_message: str, mode: ChatMode = ChatMode.OPEN, document_ids: Optional[List[int]] = None) -> Conversation:
+        conversation = Conversation(user_id=user_id, mode=mode, state=ConversationState.ACTIVE)
         self.db.add(conversation)
         self.db.commit()
         self.db.refresh(conversation)
@@ -23,14 +23,14 @@ class ConversationService:
 
     async def add_message(self, conversation_id: int, user_message: str, document_ids: Optional[List[int]] = None) -> Dict:
         conversation = self.db.query(Conversation).filter(Conversation.id == conversation_id).first()
-        if not conversation:
-            raise ValueError("Conversation not found")
+        if not conversation or conversation.state != ConversationState.ACTIVE:
+            raise ValueError("Conversation not found or not active")
 
         existing_messages = self.db.query(Message).filter(Message.conversation_id == conversation_id).order_by(Message.timestamp).all()
         history = [{"role": msg.role, "content": msg.content} for msg in existing_messages]
 
         history.append({"role": "user", "content": user_message})
-        if conversation.mode == ChatMode.grounded and document_ids:
+        if conversation.mode == ChatMode.GROUNDED and document_ids:
             document_chunks = []
             for doc_id in document_ids:
                 doc = self.db.query(Document).filter(Document.id == doc_id).first()
@@ -55,6 +55,10 @@ class ConversationService:
         return {"user_message": user_message, "assistant_response": llm_response["content"]}
 
     def get_conversation_history(self, conversation_id: int) -> List[Dict]:
+        conversation = self.db.query(Conversation).filter(Conversation.id == conversation_id).first()
+        if not conversation or conversation.state == ConversationState.DELETED:
+            raise ValueError("Conversation not found")
+
         cached_history = self.redis.get(f"conversation:{conversation_id}:history")
         if cached_history:
             return json.loads(cached_history)
@@ -66,19 +70,24 @@ class ConversationService:
 
     def list_conversations(self, user_id: int, page: int = 1, limit: int = 10) -> Dict:
         offset = (page - 1) * limit
-        total = self.db.query(Conversation).filter(Conversation.user_id == user_id).count()
-        conversations = self.db.query(Conversation).filter(Conversation.user_id == user_id).order_by(Conversation.created_at.desc()).offset(offset).limit(limit).all()
-        conversation_list = [{"id": c.id, "title": c.title, "mode": c.mode.value, "created_at": c.created_at.isoformat()} for c in conversations]
+        total = self.db.query(Conversation).filter(Conversation.user_id == user_id, Conversation.state != ConversationState.DELETED).count()
+        conversations = self.db.query(Conversation).filter(Conversation.user_id == user_id, Conversation.state != ConversationState.DELETED).order_by(Conversation.created_at.desc()).offset(offset).limit(limit).all()
+        conversation_list = [{"id": c.id, "title": c.title, "mode": c.mode.value, "state": c.state.value, "created_at": c.created_at.isoformat()} for c in conversations]
         return {"conversations": conversation_list, "page": page, "limit": limit, "total": total}
 
     def delete_conversation(self, conversation_id: int):
         conversation = self.db.query(Conversation).filter(Conversation.id == conversation_id).first()
-        if conversation:
-            user_id = conversation.user_id
-            self.db.query(Message).filter(Message.conversation_id == conversation_id).delete()
-            self.db.query(Document).filter(Document.conversation_id == conversation_id).delete()
-            self.db.query(Conversation).filter(Conversation.id == conversation_id).delete()
+        if conversation and conversation.state != ConversationState.DELETED:
+            conversation.state = ConversationState.DELETED
             self.db.commit()
             self.redis.delete(f"conversation:{conversation_id}:history")
-            self.redis.delete(f"conversations:{user_id}")
+            self.redis.delete(f"conversations:{conversation.user_id}")
+
+    def archive_conversation(self, conversation_id: int):
+        conversation = self.db.query(Conversation).filter(Conversation.id == conversation_id).first()
+        if conversation and conversation.state == ConversationState.ACTIVE:
+            conversation.state = ConversationState.ARCHIVED
+            self.db.commit()
+            self.redis.delete(f"conversation:{conversation_id}:history")
+            self.redis.delete(f"conversations:{conversation.user_id}")
 

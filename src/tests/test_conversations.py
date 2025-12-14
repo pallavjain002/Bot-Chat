@@ -24,14 +24,14 @@ def test_create_conversation(db_session):
     service = ConversationService(db_session)
     # Mock LLM call since we can't call real API in tests
     # For simplicity, assume add_message is tested separately
-    conversation = Conversation(user_id=1, mode=ChatMode.open)
+    conversation = Conversation(user_id=1, mode=ChatMode.OPEN)
     db_session.add(conversation)
     db_session.commit()
     assert conversation.id is not None
 
 def test_add_message(db_session):
     service = ConversationService(db_session)
-    conversation = Conversation(user_id=1, mode=ChatMode.open)
+    conversation = Conversation(user_id=1, mode=ChatMode.OPEN)
     db_session.add(conversation)
     db_session.commit()
 
@@ -50,8 +50,8 @@ def test_add_message(db_session):
 
 def test_list_conversations(db_session):
     service = ConversationService(db_session)
-    conv1 = Conversation(user_id=1, mode=ChatMode.open)
-    conv2 = Conversation(user_id=1, mode=ChatMode.grounded)
+    conv1 = Conversation(user_id=1, mode=ChatMode.OPEN)
+    conv2 = Conversation(user_id=1, mode=ChatMode.GROUNDED)
     db_session.add_all([conv1, conv2])
     db_session.commit()
 

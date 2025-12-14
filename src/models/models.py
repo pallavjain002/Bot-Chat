@@ -1,12 +1,18 @@
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
+from sqlalchemy import Enum as SQLEnum
 from .database import Base
 import enum
 
 class ChatMode(enum.Enum):
-    open = "open"
-    grounded = "grounded"
+    OPEN = "open"
+    GROUNDED = "grounded"
+
+class ConversationState(enum.Enum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    DELETED = "deleted"
 
 class User(Base):
     __tablename__ = "users"
@@ -24,7 +30,25 @@ class Conversation(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     title = Column(String, nullable=True)
-    mode = Column(Enum(ChatMode), default=ChatMode.open)
+    mode = Column(
+        SQLEnum(
+            ChatMode,
+            values_callable=lambda e: [i.value for i in e],
+            name="chatmode",
+        ),
+        default=ChatMode.OPEN,
+        nullable=False,
+    )
+
+    state = Column(
+        SQLEnum(
+            ConversationState,
+            values_callable=lambda e: [i.value for i in e],
+            name="conversationstate",
+        ),
+        default=ConversationState.ACTIVE,
+        nullable=False,
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
@@ -37,7 +61,7 @@ class Message(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     conversation_id = Column(Integer, ForeignKey("conversations.id"))
-    role = Column(String)  # user or assistant
+    role = Column(String)  # user or assistant or system
     content = Column(Text)
     timestamp = Column(DateTime(timezone=True), server_default=func.now())
     tokens_used = Column(Integer, nullable=True)

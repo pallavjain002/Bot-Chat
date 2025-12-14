@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from src.config.redis_client import get_redis
-from src.models import get_db, Conversation, ChatMode
+from src.models import get_db, ChatMode
 from src.services.conversation_service import ConversationService
 from pydantic import BaseModel
 from typing import List, Optional
@@ -12,7 +12,7 @@ router = APIRouter()
 class CreateConversationRequest(BaseModel):
     user_id: int
     first_message: str
-    mode: ChatMode = ChatMode.open
+    mode: ChatMode = ChatMode.OPEN
     document_ids: Optional[List[int]] = None
 
 class AddMessageRequest(BaseModel):
@@ -53,3 +53,9 @@ def delete_conversation(conversation_id: int, db: Session = Depends(get_db), red
     service = ConversationService(db, redis_client)
     service.delete_conversation(conversation_id)
     return {"message": "Conversation deleted"}
+
+@router.patch("/conversations/{conversation_id}/archive")
+def archive_conversation(conversation_id: int, db: Session = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
+    service = ConversationService(db, redis_client)
+    service.archive_conversation(conversation_id)
+    return {"message": "Conversation archived"}
