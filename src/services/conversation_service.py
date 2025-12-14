@@ -37,7 +37,8 @@ class ConversationService:
                 if doc:
                     document_chunks.extend(doc.content.split("\n\n"))
             rag_context = self.llm_service.retrieve_rag_context(user_message, document_chunks)
-            history.insert(0, {"role": "system", "content": f"Relevant context: {rag_context}"})
+            if rag_context:
+                history.insert(0, {"role": "system", "content": f"Relevant context: {rag_context}"})
 
         try:
             llm_response = await self.llm_service.call_llm(history)

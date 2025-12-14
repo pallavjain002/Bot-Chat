@@ -10,11 +10,18 @@ class LLMService:
         self.model = "llama-3.1-8b-instant"
 
     async def call_llm(self, messages: List[Dict], context_limit: int = 4000) -> Dict:
-        # Trim messages to fit context limit (simple sliding window)
-        total_tokens = sum(len(msg['content'].split()) for msg in messages)  # Rough estimate
-        while total_tokens > context_limit and len(messages) > 1:
-            messages.pop(0)
-            total_tokens = sum(len(msg['content'].split()) for msg in messages)
+        system_message = None
+        if messages and messages[0].get("role") == "system":
+            system_message = messages.pop(0)
+        system_tokens = len(system_message["content"].split()) if system_message else 0
+    
+        available_limit = context_limit - system_tokens
+        total_tokens = sum(len(msg['content'].split()) for msg in messages)
+        while total_tokens > available_limit and len(messages) > 1:
+            removed_msg = messages.pop(0) 
+            total_tokens -= len(removed_msg['content'].split())
+        if system_message:
+            messages.insert(0, system_message)
 
         payload = {
             "model": self.model,
@@ -44,4 +51,6 @@ class LLMService:
             chunk_words = set(chunk.lower().split())
             if query_words & chunk_words:  # Intersection
                 relevant_chunks.append(chunk)
+        if not relevant_chunks:
+            return ""
         return " ".join(relevant_chunks[:3])  # Top 3 chunks
