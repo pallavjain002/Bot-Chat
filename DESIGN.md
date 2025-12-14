@@ -47,6 +47,45 @@ This system focuses on clean backend architecture, API design, data modeling, an
 │   + Redis Cache  │    │   External Provider  │
 └──────────────────┘    └──────────────────────┘
 ```
+**RAG Flow:**
+
+```
++---+---------------------------------------------------+
+|            SERVICE LAYER (Orchestrator)               |
+|                                                       |
+|  +-------------------------------------------------+  |
+|  | (A) RETRIEVAL PHASE                             |  |
+|  | 1. Identify associated document IDs             |  |
+|  | 2. Perform simple keyword/text search on        |  |
+|  |    document chunks in DB based on user query.   |  |
+|  |    (Simulated Retrieval)                        |  |
+|  +------------------------+------------------------+  |
+|                           |                           |
+|                           | (3) Search Query          |
+|                           V                           |
+|  +------------------------+------------------------+  |
+|  |             DATA LAYER (Storage)                |  |
+|  | [Stored Document Text Chunks]                   |  |
+|  +------------------------+------------------------+  |
+|                           |                           |
+|                           | (4) Return Relevant Chunks|
+|                           V                           |
+|  +------------------------+------------------------+  |
+|  | (B) AUGMENTATION & GENERATION PHASE             |  |
+|  | 1. Retrieve Conversation History from DB.       |  |
+|  |                                                 |  |
+|  | 2. Construct Prompt: Combine System instructions,| |
+|  |    retrieved context chunks, history, and current| |
+|  |    user message.                                |  |
+|  +------------------------+------------------------+  |
+|                           |                           |
+|                           | (5) Call LLM API with     |
+|                           |     constructed prompt    |
+|                           |                           |
+|                           V                           |
++---+-----------------------+---------------------------+
+```
+
 
 - **API Layer**: FastAPI for validation, auth, routing, Swagger docs
 - **Service Layer**: Conversation Service for state management, RAG Service for retrieval
