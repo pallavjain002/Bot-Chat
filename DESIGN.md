@@ -1,6 +1,15 @@
-# BOT GPT Backend Design Document
+# BOT GPT – Conversational Backend Design Document
 
-## Architecture & Design
+## 1. Overview
+
+BOT GPT is a production-grade conversational backend designed to support:
+
+- Open-ended chat with Large Language Models (LLMs)
+- Grounded conversations over user-provided documents (RAG)
+- Persistent, multi-turn conversations
+- Cost-aware, scalable LLM integration
+
+This system focuses on clean backend architecture, API design, data modeling, and LLM orchestration, not model training or fine-tuning.
 
 ### High-Level Architecture Diagram
 
@@ -11,57 +20,162 @@
                                [SQLAlchemy (DB Layer)]               [Redis (Caching)]
                                       |
                                       v
-                               [SQLite/PostgreSQL]
+                               [PostgreSQL]
 ```
 
-- **API Layer**: FastAPI handles HTTP requests, validation, and responses.
-- **Service Layer**: Business logic for conversations, messages, and LLM calls.
-- **DB Layer**: SQLAlchemy ORM for data persistence.
-- **LLM Integration**: Async calls to Groq API with context management.
+- **API Layer**: FastAPI for validation, auth, routing, Swagger docs
+- **Service Layer**: Conversation Service for state management, RAG Service for retrieval
+- **LLM Service**: Prompt construction, token management, LLM calls
+- **Database**: PostgreSQL for ACID compliance and concurrency
+- **Caching**: Redis for recent conversations and token optimization
 
-### Tech Stack Justification
+## 3. Tech Stack & Justification
 
-- **FastAPI**: Async support, auto-docs, type validation. Chosen for scalability and ease of API development.
-- **SQLAlchemy**: ORM for database interactions, supports multiple DBs.
-- **SQLite**: Simple, file-based DB for development; can switch to PostgreSQL for production.
-- **Redis**: For caching conversation history to reduce token costs.
-- **Groq API**: Free tier Llama models, cost-effective.
+| Component | Technology | Justification |
+|-----------|------------|---------------|
+| API | FastAPI | Async support, auto-generated docs, type safety |
+| Database | PostgreSQL | ACID compliance, concurrency, scalability |
+| ORM | SQLAlchemy | DB-agnostic, clean schema modeling |
+| Cache | Redis | Reduce DB reads and LLM token costs |
+| LLM | Groq API (Llama) | Free tier, low latency, production-ready |
+| Deployment | Docker | Reproducible builds, easy scaling |
 
-## Data & Storage Design
+## 4. Core Conversation Flow
 
-### Database Choice
-PostgreSQL for concurrency.
+**Modes Supported:**
 
-### Schema
-- **User**: id (PK), username, email, created_at
-- **Conversation**: id (PK), user_id (FK), title, mode (open/grounded), created_at, updated_at
-- **Message**: id (PK), conversation_id (FK), role, content, timestamp, tokens_used
-- **Document**: id (PK), conversation_id (FK), name, content (chunked)
+- **Open Chat Mode**: No external context, conversation history forwarded to LLM
+- **Grounded Chat (RAG) Mode**: Conversation linked to documents, relevant chunks retrieved per query
 
-Message ordering: By timestamp ASC.
+In both modes: Conversation history persisted, messages ordered, token usage tracked.
 
-## REST API Design
+## 5. Data & Storage Design
 
-- **POST /conversations**: Payload {user_id, first_message, mode?, document_ids?} -> {conversation_id}
-- **GET /conversations?user_id=**: List conversations for user
-- **GET /conversations/{id}**: Full history
-- **PUT /conversations/{id}/messages**: Payload {message, document_ids?} -> {user_message, assistant_response}
+**Entities:**
+
+- **User**: id (PK), email, created_at
+- **Conversation**: id (PK), user_id (FK), mode (open/grounded), state (active/archived), created_at, updated_at
+- **Message**: id (PK), conversation_id (FK), role (user/assistant/system), content, timestamp, tokens_used
+- **Document**: id (PK), conversation_id (FK), name, content_chunks (stored as chunked text)
+
+**Document Storage and Chunking:**
+
+Documents are associated with conversations via document_ids. Content is chunked into passages (500–800 tokens) and stored as delimited text in the database. For simulation, chunks are split by double newlines (\n\n) and stored as a single text field.
+
+**Message Ordering:** Messages ordered by timestamp ASC for deterministic context reconstruction.
+
+## 6. Conversation Lifecycle
+
+| State | Description |
+|-------|-------------|
+| ACTIVE | Ongoing conversation |
+| ARCHIVED | Read-only, preserved |
+| DELETED | Soft-deleted |
+
+State transitions enforced at service layer for data integrity.
+
+## 7. REST API Design
+
+**Endpoints:**
+
+- **POST /conversations**: Create conversation, payload {user_id, first_message, mode?, document_ids?}
+- **POST /conversations/{id}/messages**: Add message, payload {message}
+- **GET /conversations?user_id=**: List user conversations
+- **GET /conversations/{id}**: Get conversation history
 - **DELETE /conversations/{id}**: Delete conversation
 
-HTTP Codes: 200 OK, 404 Not Found, 500 Internal Error.
+**HTTP Status Codes:** 200 OK, 404 Not Found, 400 Bad Request, 500 Internal Server Error.
 
-## LLM Context & Cost Management
+## 8. Message Processing Flow
 
-Context constructed from message history. Sliding window: Trim oldest messages if total tokens > 4000.
+1. Client sends user message
+2. API validates ownership and payload
+3. Service retrieves conversation history
+4. Apply token window (sliding window)
+5. For grounded mode: Retrieve relevant document chunks
+6. Assemble prompt with context
+7. Invoke LLM API
+8. Persist assistant response
+9. Return response to client
 
-Strategies: Summarization (future), caching frequent responses, system prompts for grounding.
+This ensures LLM statelessness while backend owns conversation state.
 
-## Error Handling & Scalability
+## 9. Prompt Construction Strategy
 
-Errors: LLM timeout -> Retry 3x, DB failure -> Rollback, Token breach -> Trim context.
+**Prompt Structure:**
 
-Scalability: API horizontal scaling, DB read replicas, Redis sharding. Bottleneck at LLM API rate limits; use queues for async processing.
+- System Prompt: Defines behavior and safety
+- Context: Retrieved document chunks (RAG mode)
+- Conversation History: Last N messages
+- User Query
 
-## Deployment & DevOps
+Layered approach minimizes hallucinations and controls costs.
 
-GitHub repo with CI/CD (tests on push). Dockerfile for containerization. Unit tests for core logic.
+## 10. RAG Retrieval Strategy
+
+**Document Indexing and Storage:**
+
+Documents uploaded and associated with conversations. Content chunked into passages (e.g., by paragraphs or fixed token size) and stored in database as text. No full embeddings or vector DB required; simulate with keyword-based retrieval.
+
+**Retrieval Method:**
+
+For each user message, perform simple keyword matching: Split query into words, find chunks with overlapping words. Select top K (e.g., 3) relevant chunks. This simulates retrieval without complex infrastructure.
+
+**Context Combination:**
+
+Retrieved chunks concatenated and injected as system message: "Relevant context: [chunks]". Combined with conversation history and user query in LLM prompt. Entire documents never sent to LLM.
+
+Balances relevance, cost, and latency.
+
+## 11. LLM Context & Cost Management
+
+**Strategies:**
+
+- Sliding window for history (Trim oldest messages if total tokens > 4000)
+- Token counting per message
+- Redis caching for repeated context
+- Future: Automated summarization
+
+**Benefits:** Reduced costs, faster responses, predictable usage.
+
+## 12. Error Handling
+
+| Failure | Handling |
+|---------|----------|
+| LLM timeout | Retry with backoff |
+| Token overflow | Context trimming |
+| DB failure | Transaction rollback |
+| Invalid state | Graceful error response |
+
+## 13. Scalability Considerations
+
+- Horizontal FastAPI scaling
+- PostgreSQL read replicas
+- Redis sharding
+- Async queues for LLM calls
+
+Primary bottleneck: LLM rate limits; mitigate with batching and workers.
+
+## 14. Security Considerations
+
+- User-level conversation authorization
+- Rate limiting
+- Environment-based secrets
+- Prompt injection mitigation via system prompts
+
+## 15. Deployment & DevOps
+
+- Public GitHub repo
+- Dockerized application
+- CI pipeline with tests
+- Swagger API docs
+
+## 16. Future Enhancements
+
+- Streaming responses (SSE/WebSockets)
+- Vector DB integration for advanced RAG
+- Tool/function calling
+- Multi-model routing
+- Usage analytics dashboard
+
+**Conclusion:** Design prioritizes clarity, scalability, and cost-efficiency for production conversational AI.
