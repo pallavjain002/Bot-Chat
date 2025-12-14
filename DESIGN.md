@@ -99,11 +99,16 @@ State transitions enforced at service layer for data integrity.
 
 **Endpoints:**
 
+- **POST /users**: Create User
+- **GET /users/{user_id}**: Get user details
+- **GET /users**: List users
+
 - **POST /conversations**: Create conversation, payload {user_id, first_message, mode?, document_ids?}
 - **POST /conversations/{id}/messages**: Add message, payload {message}
 - **GET /conversations?user_id=**: List user conversations
 - **GET /conversations/{id}**: Get conversation history
 - **DELETE /conversations/{id}**: Delete conversation
+- **PATCH /conversations/{conversation_id}/archive**: Archive a conversation
 
 **HTTP Status Codes:** 200 OK, 404 Not Found, 400 Bad Request, 500 Internal Server Error.
 
