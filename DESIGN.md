@@ -5,7 +5,7 @@
 BOT GPT is a production-grade conversational backend designed to support:
 
 - Open-ended chat with Large Language Models (LLMs)
-- Grounded conversations over user-provided documents (RAG)
+- Grounded conversations (RAG) over user-provided documents
 - Persistent, multi-turn conversations
 - Cost-aware, scalable LLM integration
 
@@ -35,7 +35,7 @@ This system focuses on clean backend architecture, API design, data modeling, an
 |-----------|------------|---------------|
 | API | FastAPI | Async support, auto-generated docs, type safety |
 | Database | PostgreSQL | ACID compliance, concurrency, scalability |
-| ORM | SQLAlchemy | DB-agnostic, clean schema modeling |
+| ORM | SQLAlchemy | Clean schema modeling |
 | Cache | Redis | Reduce DB reads and LLM token costs |
 | LLM | Groq API (Llama) | Free tier, low latency, production-ready |
 | Deployment | Docker | Reproducible builds, easy scaling |
@@ -115,7 +115,7 @@ Layered approach minimizes hallucinations and controls costs.
 
 **Document Indexing and Storage:**
 
-Documents uploaded and associated with conversations. Content chunked into passages (e.g., by paragraphs or fixed token size) and stored in database as text. No full embeddings or vector DB required; simulate with keyword-based retrieval.
+Documents uploaded and associated with conversations. Content chunked into passages (e.g., by paragraphs or fixed token size) and stored in database as text.
 
 **Retrieval Method:**
 
@@ -133,7 +133,7 @@ Balances relevance, cost, and latency.
 
 - Sliding window for history (Trim oldest messages if total tokens > 4000)
 - Token counting per message
-- Redis caching for repeated context
+- Future: Redis caching for repeated context 
 - Future: Automated summarization
 
 **Benefits:** Reduced costs, faster responses, predictable usage.
@@ -158,10 +158,9 @@ Primary bottleneck: LLM rate limits; mitigate with batching and workers.
 
 ## 14. Security Considerations
 
-- User-level conversation authorization
+- User-level conversation authorization (middleware)
 - Rate limiting
 - Environment-based secrets
-- Prompt injection mitigation via system prompts
 
 ## 15. Deployment & DevOps
 
@@ -174,8 +173,6 @@ Primary bottleneck: LLM rate limits; mitigate with batching and workers.
 
 - Streaming responses (SSE/WebSockets)
 - Vector DB integration for advanced RAG
-- Tool/function calling
-- Multi-model routing
 - Usage analytics dashboard
 
 **Conclusion:** Design prioritizes clarity, scalability, and cost-efficiency for production conversational AI.

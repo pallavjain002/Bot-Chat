@@ -64,15 +64,12 @@ class ConversationService:
         self.redis.set(f"conversation:{conversation_id}:history", json.dumps(history), ex=3600) # Cache for 1 hour
         return history
 
-    def list_conversations(self, user_id: int) -> List[Dict]:
-        cached_conversations = self.redis.get(f"conversations:{user_id}")
-        if cached_conversations:
-            return json.loads(cached_conversations)
-
-        conversations = self.db.query(Conversation).filter(Conversation.user_id == user_id).all()
+    def list_conversations(self, user_id: int, page: int = 1, limit: int = 10) -> Dict:
+        offset = (page - 1) * limit
+        total = self.db.query(Conversation).filter(Conversation.user_id == user_id).count()
+        conversations = self.db.query(Conversation).filter(Conversation.user_id == user_id).order_by(Conversation.created_at.desc()).offset(offset).limit(limit).all()
         conversation_list = [{"id": c.id, "title": c.title, "mode": c.mode.value, "created_at": c.created_at.isoformat()} for c in conversations]
-        self.redis.set(f"conversations:{user_id}", json.dumps(conversation_list), ex=3600) # Cache for 1 hour
-        return conversation_list
+        return {"conversations": conversation_list, "page": page, "limit": limit, "total": total}
 
     def delete_conversation(self, conversation_id: int):
         conversation = self.db.query(Conversation).filter(Conversation.id == conversation_id).first()

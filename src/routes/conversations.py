@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from src.config.redis_client import get_redis
 from src.models import get_db, Conversation, ChatMode
@@ -28,17 +28,17 @@ async def create_conversation(request: CreateConversationRequest, db: Session = 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/conversations", response_model=List[dict])
-def list_conversations(user_id: int, db: Session = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
+@router.get("/conversations", response_model=dict)
+def list_conversations(user_id: int, page: int = Query(1, ge=1), limit: int = Query(10, ge=1, le=100), db: Session = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
     service = ConversationService(db, redis_client)
-    return service.list_conversations(user_id)
+    return service.list_conversations(user_id, page, limit)
 
 @router.get("/conversations/{conversation_id}", response_model=List[dict])
 def get_conversation_history(conversation_id: int, db: Session = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
     service = ConversationService(db, redis_client)
     return service.get_conversation_history(conversation_id)
 
-@router.put("/conversations/{conversation_id}/messages", response_model=dict)
+@router.post("/conversations/{conversation_id}/messages", response_model=dict)
 async def add_message(conversation_id: int, request: AddMessageRequest, db: Session = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
     try:
         service = ConversationService(db, redis_client)
