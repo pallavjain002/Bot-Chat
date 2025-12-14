@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from src.models import get_db
+from src.config.redis_client import get_redis
 from src.services.user_service import UserService
 from pydantic import BaseModel
 from typing import List
+import redis
 
 router = APIRouter()
 
@@ -20,9 +22,9 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 @router.post("/users", response_model=UserResponse, tags=["Users"])
-def create_user(request: CreateUserRequest, db: Session = Depends(get_db)):
+def create_user(request: CreateUserRequest, db: Session = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
     try:
-        service = UserService(db)
+        service = UserService(db, redis_client)
         user = service.create_user(username=request.username, email=request.email)
         return user
     except ValueError as e:
@@ -31,15 +33,15 @@ def create_user(request: CreateUserRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/users/{user_id}", response_model=UserResponse, tags=["Users"])
-def get_user(user_id: int, db: Session = Depends(get_db)):
+def get_user(user_id: int, db: Session = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
     try:
-        service = UserService(db)
+        service = UserService(db, redis_client)
         user = service.get_user(user_id)
         return user
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
 @router.get("/users", response_model=List[UserResponse], tags=["Users"])
-def list_users(db: Session = Depends(get_db)):
-    service = UserService(db)
+def list_users(db: Session = Depends(get_db), redis_client: redis.Redis = Depends(get_redis)):
+    service = UserService(db, redis_client)
     return service.list_users()

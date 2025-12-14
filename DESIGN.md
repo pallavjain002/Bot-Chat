@@ -30,7 +30,7 @@
 ## Data & Storage Design
 
 ### Database Choice
-SQLite for simplicity and zero-config. Justified: Easy setup, ACID compliant, sufficient for moderate load. For production, switch to PostgreSQL for concurrency.
+PostgreSQL for concurrency.
 
 ### Schema
 - **User**: id (PK), username, email, created_at

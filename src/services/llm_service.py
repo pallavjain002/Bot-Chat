@@ -45,5 +45,3 @@ class LLMService:
             if query_words & chunk_words:  # Intersection
                 relevant_chunks.append(chunk)
         return " ".join(relevant_chunks[:3])  # Top 3 chunks
-
-llm_service = LLMService()
