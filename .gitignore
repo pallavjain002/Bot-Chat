@@ -1,8 +1,8 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
 
-# Configs
-src/config/settings.py
+# Environment
+.env
 
 # VS Code
 .vscode/
