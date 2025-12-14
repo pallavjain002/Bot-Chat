@@ -13,35 +13,39 @@ This system focuses on clean backend architecture, API design, data modeling, an
 
 ### High-Level Architecture Diagram
 
+### 2.1 High-Level Architecture
+
 ```
-        [ Client / User Interface ]
-                    |
-                    | HTTP/REST JSON
-                    v
-+===========================================+
-|           PRESENTATION LAYER              |
-|      [ FastAPI (API Gateways/Routes) ]    |
-+===========================================+
-                    |
-                    v
-+===========================================+
-|             SERVICE LAYER                 |
-|    [ ConversationService (Business Logic)]|<-------> [Redis (Hot State/Cache)]
-+===========================================+
-            |                 |
-            |                 |
-            v                 v
-+--------------------+  +-------------------+
-| DATA ACCESS LAYER  |  | INTEGRATION LAYER |
-| [ SQLAlchemy ORM ] |  |   [ LLMService ]  |
-+--------------------+  +-------------------+
-            |                 |
-            |                 | HTTPS
-            v                 v
-+====================+  +===================+
-|   INFRASTRUCTURE   |  | EXTERNAL PROVIDER |
-| [ PostgreSQL DB ]  |  |    [ Groq API ]   |
-+====================+  +===================+
+┌─────────────────────────────────────────────────┐
+│         CLIENT / USER INTERFACE                 │
+└──────────────────┬──────────────────────────────┘
+                   │ HTTP/REST (JSON)
+                   ▼
+┌─────────────────────────────────────────────────┐
+│                  API LAYER                      │
+│    FastAPI - Routes, Validation, Auth           │
+└──────────────────┬──────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────┐
+│           SERVICE LAYER                         │
+│  ┌──────────────────┐  ┌──────────────────┐     │
+│  │ Conversation     │  │  RAG Service     │     │
+│  │   Service        │  │  (Retrieval)     │     │
+│  └──────────────────┘  └──────────────────┘     │
+└────────┬─────────────────────────┬──────────────┘
+         │                         │
+         ▼                         ▼
+┌──────────────────┐    ┌──────────────────────┐
+│  DATA LAYER      │    │  INTEGRATION LAYER   │
+│  SQLAlchemy ORM  │    │    LLM Service       │
+└────────┬─────────┘    └──────────┬───────────┘
+         │                         │
+         ▼                         ▼
+┌──────────────────┐    ┌──────────────────────┐
+│   PostgreSQL     │    │   Groq API (Llama)   │
+│   + Redis Cache  │    │   External Provider  │
+└──────────────────┘    └──────────────────────┘
 ```
 
 - **API Layer**: FastAPI for validation, auth, routing, Swagger docs
@@ -79,11 +83,79 @@ In both modes: Conversation history persisted, messages ordered, token usage tra
 - **Message**: id (PK), conversation_id (FK), role (user/assistant/system), content, timestamp, tokens_used
 - **Document**: id (PK), conversation_id (FK), name, content_chunks (stored as chunked text)
 
+### Entity Relationship Diagram
+
+```
+┌─────────────┐
+│    User     │
+│─────────────│
+│ id (PK)     │
+│ username    │
+│ email       │
+│ created_at  │
+└──────┬──────┘
+       │ 1:N
+       │
+┌──────▼────────────┐
+│  Conversation     │
+│───────────────────│
+│ id (PK)           │
+│ user_id (FK)      │
+│ title             │
+│ mode (enum)       │◄─────┐
+│ state (enum)      │      │ 1:N
+│ created_at        │      │
+│ updated_at        │      │
+└──────┬────────────┘      │
+       │ 1:N               │
+       │            ┌──────┴────────┐
+┌──────▼──────────┐ │   Document    │
+│    Message      │ │───────────────│
+│─────────────────│ │ id (PK)       │
+│ id (PK)         │ │ conv_id (FK)  │
+│ conv_id (FK)    │ │ name          │
+│ role (enum)     │ │ chunks (text) │
+│ content (text)  │ │ uploaded_at   │
+│ timestamp       │ └───────────────┘
+│ tokens_used     │
+└─────────────────┘
+```
+
 **Document Storage and Chunking:**
 
 Documents are associated with conversations via document_ids. Content is chunked into passages (500–800 tokens) and stored as delimited text in the database. For simulation, chunks are split by double newlines (\n\n) and stored as a single text field.
 
 **Message Ordering:** Messages ordered by timestamp ASC for deterministic context reconstruction.
+
+## Message Processing & LLM Integration
+
+### Processing Flow
+
+```
+1. Client Request
+   ↓
+2. Validate Ownership (user owns conversation)
+   ↓
+3. Fetch Conversation History from DB
+   ↓
+4. Apply Token Window (sliding window if > 4000 tokens)
+   ↓
+5. RAG Mode: Retrieve Relevant Document Chunks
+   ↓
+6. Construct Prompt
+   • System prompt
+   • Retrieved context (if RAG)
+   • Conversation history
+   • User query
+   ↓
+7. Call LLM API (Groq)
+   ↓
+8. Parse Response & Count Tokens
+   ↓
+9. Persist Assistant Message to DB
+   ↓
+10. Return Response to Client
+```
 
 ## 6. Conversation Lifecycle
 
@@ -173,14 +245,20 @@ Balances relevance, cost, and latency.
 | DB failure | Transaction rollback |
 | Invalid state | Graceful error response |
 
-## 13. Scalability Considerations
+## 13. Scalability Analysis
 
-- Horizontal FastAPI scaling
-- PostgreSQL read replicas
-- Redis sharding
-- Async queues for LLM calls
+### 13.1 Bottleneck Identification
 
-Primary bottleneck: LLM rate limits; mitigate with batching and workers.
+**At 1M Users:**
+
+1. **LLM API Rate Limits** (Primary Bottleneck)
+   - Solution: Use async workers (Celery) for non-blocking calls
+
+2. **Database Connections**
+   - Solution: Connection pooling
+
+3. **API Server Capacity**
+   - Solution: Horizontal scaling (Kubernetes pods)
 
 ## 14. Security Considerations
 
