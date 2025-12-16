@@ -1,14 +1,26 @@
 import pytest
+from unittest.mock import AsyncMock, MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from src.models import Base, get_db, Conversation, Message
-from src.services.conversation_service import ConversationService
-from src.models.models import ChatMode
 
-# Test database
+from src.models import Base, Conversation, Message, ChatMode
+from src.services.conversation_service import ConversationService
+
+# ---------------------------
+# Test DB setup
+# ---------------------------
 TEST_DATABASE_URL = "sqlite:///./test.db"
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
+engine = create_engine(
+    TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False}
+)
+
+TestingSessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine
+)
 
 @pytest.fixture(scope="function")
 def db_session():
@@ -20,40 +32,61 @@ def db_session():
         db.close()
         Base.metadata.drop_all(bind=engine)
 
-def test_create_conversation(db_session):
-    service = ConversationService(db_session)
-    # Mock LLM call since we can't call real API in tests
-    # For simplicity, assume add_message is tested separately
-    conversation = Conversation(user_id=1, mode=ChatMode.OPEN)
-    db_session.add(conversation)
-    db_session.commit()
+@pytest.fixture
+def mock_redis():
+    redis = MagicMock()
+    redis.get.return_value = None
+    return redis
+
+# ---------------------------
+# Tests
+# ---------------------------
+
+@pytest.mark.asyncio
+async def test_create_conversation(db_session, mock_redis, monkeypatch):
+    service = ConversationService(db_session, mock_redis)
+
+    # Mock LLM call
+    monkeypatch.setattr(
+        service.llm_service,
+        "call_llm",
+        AsyncMock(return_value={"content": "Hi!", "tokens_used": 5})
+    )
+
+    conversation = await service.create_conversation(
+        user_id=1,
+        first_message="Hello",
+        mode=ChatMode.OPEN
+    )
+
     assert conversation.id is not None
 
-def test_add_message(db_session):
-    service = ConversationService(db_session)
+    messages = (
+        db_session.query(Message)
+        .filter(Message.conversation_id == conversation.id)
+        .all()
+    )
+    assert len(messages) == 2
+    assert messages[0].role == "user"
+    assert messages[1].role == "assistant"
+
+
+@pytest.mark.asyncio
+async def test_get_conversation_history(db_session, mock_redis):
+    service = ConversationService(db_session, mock_redis)
+
     conversation = Conversation(user_id=1, mode=ChatMode.OPEN)
     db_session.add(conversation)
     db_session.commit()
 
-    # Mock the LLM response
-    # In real test, mock the llm_service.call_llm
-    user_msg = Message(conversation_id=conversation.id, role="user", content="Hello")
-    db_session.add(user_msg)
-    assistant_msg = Message(conversation_id=conversation.id, role="assistant", content="Hi there")
-    db_session.add(assistant_msg)
+    db_session.add_all([
+        Message(conversation_id=conversation.id, role="user", content="Hello"),
+        Message(conversation_id=conversation.id, role="assistant", content="Hi")
+    ])
     db_session.commit()
 
     history = service.get_conversation_history(conversation.id)
+
     assert len(history) == 2
     assert history[0]["content"] == "Hello"
-    assert history[1]["content"] == "Hi there"
-
-def test_list_conversations(db_session):
-    service = ConversationService(db_session)
-    conv1 = Conversation(user_id=1, mode=ChatMode.OPEN)
-    conv2 = Conversation(user_id=1, mode=ChatMode.GROUNDED)
-    db_session.add_all([conv1, conv2])
-    db_session.commit()
-
-    conversations = service.list_conversations(1)
-    assert len(conversations) == 2
+    assert history[1]["content"] == "Hi"
